@@ -12,54 +12,16 @@ from orm import add_result, get_top, delete_all
 TOKEN = os.getenv('VK_TOKEN')
 APP_ID = os.getenv('APP_ID')
 V = '5.103'
-BASE_URL = 'https://oauth.vk.com/authorize'
-auth_data = {
-    'client_id': APP_ID,
-    'display': 'page',
-    'response_type': 'token',
-    'scope': 'friends',
-    'v': '5.95'
-}
-
-print('?'.join((BASE_URL, urlencode(auth_data))))
-
-
-def vk_search(api, sex, age, city):
-    code = """
-    var i = 0;
-    var result = [];
-    var offset = 0;
-    var sex = %s;
-    var age = %s;
-    var city = %s;
-    while(i < 3){
-    var resp = API.users.search({"count": "1000", "offset": offset, "sex": sex, "age_from": age-5, "age_to": age+5, 
-    "city": city, "has_photo": "1", 
-    "fields": "city, home_town, sex, bdate, books, interests, movies, music, personal, relation"}).items;
-    result.push(resp);
-    i = i + 1;
-    offset = offset + 1000;
-    }
-    return result;""" % (sex, age, city)
-    while True:
-        try:
-            response = api.execute(code=code)
-        except vk.exceptions.VkAPIError as vk_error:
-            if vk_error.code == 6:
-                time.sleep(1)
-            else:
-                vk_search(api, sex, age, city)
-            continue
-        break
-
-    result = []
-    if 'error_code' not in response:
-        for resp in response:
-            if resp is None:
-                continue
-            for r in resp:
-                result.append(r)
-    return result
+# BASE_URL = 'https://oauth.vk.com/authorize'
+# auth_data = {
+#     'client_id': APP_ID,
+#     'display': 'page',
+#     'response_type': 'token',
+#     'scope': 'friends',
+#     'v': '5.95'
+# }
+#
+# print('?'.join((BASE_URL, urlencode(auth_data))))
 
 
 class User:
