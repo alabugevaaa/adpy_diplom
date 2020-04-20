@@ -6,7 +6,7 @@ import difflib
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from urllib.parse import urlencode
-from orm import add_result, get_top, delete_all
+from orm import add_result, get_top, delete_all, get_or_create, set_shown
 
 
 TOKEN = os.getenv('VK_TOKEN')
@@ -162,7 +162,6 @@ class User:
         return points
 
     def search(self):
-        delete_all()
         sex_oppos = 1 if self.sex == 2 else 2
         while True:
             try:
@@ -203,12 +202,12 @@ class User:
                     top[url_photo] = count_likes
                 sorted_top = sorted(top.items(), key=lambda x: x[1])[:3]
                 if len(sorted_top) == 3:
-                    add_result(f'https://vk.com/id{r["id"]}', points,
-                               sorted_top[0][0], sorted_top[1][0], sorted_top[2][0])
+                    get_or_create(user_id=self.user_id, link=f'https://vk.com/id{r["id"]}', points=points,
+                                  top1=sorted_top[0][0], top2=sorted_top[1][0], top3=sorted_top[2][0])
 
     def get_result_search(self, count):
         result = []
-        for row in get_top(count):
+        for row in get_top(self.user_id, count):
             data = {
                 'link': row.link,
                 'points': row.points,
@@ -217,6 +216,7 @@ class User:
                 'top3': row.top3
             }
             result.append(data)
+            set_shown(row.id)
 
         with open("result_search.json", "w") as write_file:
             json.dump(result, write_file, ensure_ascii=False, indent=2)
