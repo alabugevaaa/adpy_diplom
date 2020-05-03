@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import time
 import vk
@@ -6,7 +7,7 @@ import difflib
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from urllib.parse import urlencode
-from orm import add_result, get_top, delete_all, get_or_create, set_shown
+from orm import get_top, get_or_create, set_shown
 
 
 TOKEN = os.getenv('VK_TOKEN')
@@ -57,6 +58,8 @@ class User:
                     self.city_id = ''
             if not self.age:
                 self.age = int(input('Укажите Ваш возраст: '))
+            self.age_from = self.age - 5
+            self.age_to = self.age + 5
             if not self.sex:
                 sex = input('Укажите Ваш пол (м/ж): ')
                 self.sex = 1 if sex == 'ж' else 2
@@ -100,72 +103,13 @@ class User:
         return user_id, first_name, last_name, sex, age, city, hometown, \
             personal, interests, books, movies, music, groups
 
-    def check_points(self, params):
-        user_id, first_name, last_name, sex, age, city, hometown, \
-            personal, interests, books, movies, music, groups = params
-        points = 0
-
-        while True:
-            try:
-                common_count = len(self.api.friends.getMutual(source_uid=self.user_id, target_uid=user_id))
-            except vk.exceptions.VkAPIError as vk_error:
-                if vk_error.code == 6:
-                    time.sleep(1)
-                continue
-            break
-
-        if common_count > 0:
-            points += 20
-        common_groups = len(groups & self.groups)
-        if common_groups > 0:
-            points += 16
-        if city:
-            city = city['title']
-        if city == self.city:
-            points += 13
-        if isinstance(age, int) and self.age - 5 <= age <= self.age + 5:
-            points += 10
-        if hometown != '' and hometown.lower() == self.hometown.lower():
-            points += 5
-        if personal != '' and self.personal != '':
-            if personal.get('political') is not None and personal.get('political') != 0 \
-                    and personal.get('political') == self.personal.get('political'):
-                points += 2
-            if personal.get('religion') is not None and personal.get('religion') != 0 \
-                    and personal.get('religion') == self.personal.get('religion'):
-                points += 2
-            if personal.get('people_main') is not None and personal.get('people_main') != 0 \
-                    and personal.get('people_main') == self.personal.get('people_main'):
-                points += 2
-            if personal.get('life_main') is not None and personal.get('life_main') != 0 \
-                    and personal.get('life_main') == self.personal.get('life_main'):
-                points += 2
-            if personal.get('smoking') is not None and personal.get('smoking') != 0 \
-                    and personal.get('smoking') == self.personal.get('smoking'):
-                points += 2
-            if personal.get('alcohol') is not None and personal.get('alcohol') != 0 \
-                    and personal.get('alcohol') == self.personal.get('alcohol'):
-                points += 2
-        if interests != '':
-            degree = similarity(interests, self.interests)
-            points += 7 * degree
-        if music != '':
-            degree = similarity(music, self.music)
-            points += 6 * degree
-        if movies != '':
-            degree = similarity(movies, self.movies)
-            points += 5 * degree
-        if books != '':
-            degree = similarity(books, self.books)
-            points += 4 * degree
-
-        return points
-
     def search(self):
-        sex_oppos = 1 if self.sex == 2 else 2
+        female = 1
+        male = 2
+        sex_oppos = female if self.sex == male else male
         while True:
             try:
-                result = self.api.users.search(count=1000, sex=sex_oppos, age_from=self.age-5, age_to=self.age+5,
+                result = self.api.users.search(count=1000, sex=sex_oppos, age_from=self.age_from, age_to=self.age_to,
                                                city=self.city_id, has_photo=1,
                                                fields='city, home_town, sex, bdate, books, interests, movies, '
                                                       'music, personal, relation')['items']
@@ -174,16 +118,19 @@ class User:
                     time.sleep(1)
                 continue
             break
-
+        progress_i = 1
         for r in result:
+            progress_i += 1
+            unsuitable_status = (2, 3, 4, 5, 7, 8)
+            suitable_status = (1, 6)
             if (r['is_closed'] and not r['can_access_closed']) \
-                    or r.get('relation') in (2, 3, 4, 5, 7, 8):
+                    or r.get('relation') in unsuitable_status:
                 continue
 
-            points = self.check_points(self.get_info(r))
+            points = check_points(self, self.get_info(r))
 
-            # если статус "в активном поиске" добавляем баллы
-            if r.get('relation') == 6:
+            # если статус "в активном поиске"/"не женат/не замужем" добавляем баллы
+            if r.get('relation') in suitable_status:
                 points += 2
 
             if points > 20:
@@ -205,6 +152,9 @@ class User:
                     get_or_create(user_id=self.user_id, link=f'https://vk.com/id{r["id"]}', points=points,
                                   top1=sorted_top[0][0], top2=sorted_top[1][0], top3=sorted_top[2][0])
 
+            text = print_progress(60, len(result), progress_i)
+        print(text + " Список подходящих пар получен")
+
     def get_result_search(self, count):
         result = []
         for row in get_top(self.user_id, count):
@@ -220,6 +170,75 @@ class User:
 
         with open("result_search.json", "w") as write_file:
             json.dump(result, write_file, ensure_ascii=False, indent=2)
+
+
+def print_progress(bar_len, count, i):
+    d = math.floor(bar_len / count * (i + 1))
+    text = '\r|{0}{1}|'.format('#' * d, '-' * (bar_len - d))
+    print(text, f"Осталось обработать {count - i} профилей", end='')
+    return text
+
+
+def check_points(params_user, params_couple):
+    user_id, first_name, last_name, sex, age, city, hometown, \
+        personal, interests, books, movies, music, groups = params_couple
+    points = 0
+
+    while True:
+        try:
+            common_count = len(params_user.api.friends.getMutual(source_uid=params_user.user_id, target_uid=user_id))
+        except vk.exceptions.VkAPIError as vk_error:
+            if vk_error.code == 6:
+                time.sleep(1)
+            continue
+        break
+
+    if common_count > 0:
+        points += 20
+    common_groups = len(groups & params_user.groups)
+    if common_groups > 0:
+        points += 16
+    if city:
+        city = city['title']
+    if city == params_user.city:
+        points += 13
+    if isinstance(age, int) and params_user.age - 5 <= age <= params_user.age + 5:
+        points += 10
+    if hometown != '' and hometown.lower() == params_user.hometown.lower():
+        points += 5
+    if personal != '' and params_user.personal != '':
+        if personal.get('political') is not None and personal.get('political') != 0 \
+                and personal.get('political') == params_user.personal.get('political'):
+            points += 2
+        if personal.get('religion') is not None and personal.get('religion') != 0 \
+                and personal.get('religion') == params_user.personal.get('religion'):
+            points += 2
+        if personal.get('people_main') is not None and personal.get('people_main') != 0 \
+                and personal.get('people_main') == params_user.personal.get('people_main'):
+            points += 2
+        if personal.get('life_main') is not None and personal.get('life_main') != 0 \
+                and personal.get('life_main') == params_user.personal.get('life_main'):
+            points += 2
+        if personal.get('smoking') is not None and personal.get('smoking') != 0 \
+                and personal.get('smoking') == params_user.personal.get('smoking'):
+            points += 2
+        if personal.get('alcohol') is not None and personal.get('alcohol') != 0 \
+                and personal.get('alcohol') == params_user.personal.get('alcohol'):
+            points += 2
+    if interests != '':
+        degree = similarity(interests, params_user.interests)
+        points += 7 * degree
+    if music != '':
+        degree = similarity(music, params_user.music)
+        points += 6 * degree
+    if movies != '':
+        degree = similarity(movies, params_user.movies)
+        points += 5 * degree
+    if books != '':
+        degree = similarity(books, params_user.books)
+        points += 4 * degree
+
+    return points
 
 
 def similarity(s1, s2):
